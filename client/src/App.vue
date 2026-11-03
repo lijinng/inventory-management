@@ -1,31 +1,40 @@
 <template>
-  <div class="app">
+  <div class="app" :class="{ 'sidebar-collapsed': collapsed }">
+    <aside class="sidebar">
+      <button
+        type="button"
+        class="sidebar-toggle"
+        :aria-expanded="String(!collapsed)"
+        aria-controls="sidebar-nav"
+        :aria-label="collapsed ? t('nav.expandSidebar') : t('nav.collapseSidebar')"
+        :title="collapsed ? t('nav.expandSidebar') : t('nav.collapseSidebar')"
+        @click="toggleSidebar"
+      >
+        <NavIcon :name="collapsed ? 'chevrons-right' : 'chevrons-left'" />
+        <span class="nav-label">{{ collapsed ? t('nav.expandSidebar') : t('nav.collapseSidebar') }}</span>
+      </button>
+      <nav id="sidebar-nav" class="nav-tabs" :aria-label="t('nav.mainNavigation')">
+        <router-link
+          v-for="item in navItems"
+          :key="item.to"
+          :to="item.to"
+          :class="{ active: $route.path === item.to }"
+          :aria-label="item.label"
+          :title="collapsed ? item.label : null"
+        >
+          <NavIcon :name="item.icon" />
+          <span class="nav-label">{{ item.label }}</span>
+        </router-link>
+      </nav>
+    </aside>
+
+    <div class="app-body">
     <header class="top-nav">
       <div class="nav-container">
         <div class="logo">
           <h1>{{ t('nav.companyName') }}</h1>
           <span class="subtitle">{{ t('nav.subtitle') }}</span>
         </div>
-        <nav class="nav-tabs">
-          <router-link to="/" :class="{ active: $route.path === '/' }">
-            {{ t('nav.overview') }}
-          </router-link>
-          <router-link to="/inventory" :class="{ active: $route.path === '/inventory' }">
-            {{ t('nav.inventory') }}
-          </router-link>
-          <router-link to="/orders" :class="{ active: $route.path === '/orders' }">
-            {{ t('nav.orders') }}
-          </router-link>
-          <router-link to="/spending" :class="{ active: $route.path === '/spending' }">
-            {{ t('nav.finance') }}
-          </router-link>
-          <router-link to="/demand" :class="{ active: $route.path === '/demand' }">
-            {{ t('nav.demandForecast') }}
-          </router-link>
-          <router-link to="/reports" :class="{ active: $route.path === '/reports' }">
-            Reports
-          </router-link>
-        </nav>
         <LanguageSwitcher />
         <ProfileMenu
           @show-profile-details="showProfileDetails = true"
@@ -37,6 +46,7 @@
     <main class="main-content">
       <router-view />
     </main>
+    </div>
 
     <ProfileDetailsModal
       :is-open="showProfileDetails"
@@ -55,7 +65,7 @@
 </template>
 
 <script>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { api } from './api'
 import { useAuth } from './composables/useAuth'
 import { useI18n } from './composables/useI18n'
@@ -64,6 +74,20 @@ import ProfileMenu from './components/ProfileMenu.vue'
 import ProfileDetailsModal from './components/ProfileDetailsModal.vue'
 import TasksModal from './components/TasksModal.vue'
 import LanguageSwitcher from './components/LanguageSwitcher.vue'
+import NavIcon from './components/NavIcon.vue'
+
+const SIDEBAR_KEY = 'sidebarCollapsed'
+const WIDE_QUERY = '(min-width: 1024px)'
+
+// Read the persisted choice; anything other than 'true'/'false' (or blocked storage) means "no preference".
+const readStoredCollapsed = () => {
+  try {
+    const v = localStorage.getItem(SIDEBAR_KEY)
+    return v === 'true' ? true : v === 'false' ? false : null
+  } catch {
+    return null
+  }
+}
 
 export default {
   name: 'App',
@@ -72,7 +96,8 @@ export default {
     ProfileMenu,
     ProfileDetailsModal,
     TasksModal,
-    LanguageSwitcher
+    LanguageSwitcher,
+    NavIcon
   },
   setup() {
     const { currentUser } = useAuth()
@@ -80,6 +105,32 @@ export default {
     const showProfileDetails = ref(false)
     const showTasks = ref(false)
     const apiTasks = ref([])
+
+    const navItems = computed(() => [
+      { to: '/', icon: 'overview', label: t('nav.overview') },
+      { to: '/inventory', icon: 'inventory', label: t('nav.inventory') },
+      { to: '/orders', icon: 'orders', label: t('nav.orders') },
+      { to: '/spending', icon: 'finance', label: t('nav.finance') },
+      { to: '/demand', icon: 'demand', label: t('nav.demandForecast') },
+      { to: '/restocking', icon: 'restocking', label: t('nav.restocking') },
+      { to: '/reports', icon: 'reports', label: t('nav.reports') }
+    ])
+
+    // Sidebar: with no stored user choice, collapse below 1024px and expand above.
+    // Once the user toggles, their choice wins over the breakpoint.
+    const mq = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(WIDE_QUERY) : null
+    const isWide = ref(mq ? mq.matches : true)
+    const userCollapsed = ref(readStoredCollapsed())
+    const collapsed = computed(() => userCollapsed.value ?? !isWide.value)
+    const onMqChange = (e) => { isWide.value = e.matches }
+    const toggleSidebar = () => {
+      userCollapsed.value = !collapsed.value
+      try {
+        localStorage.setItem(SIDEBAR_KEY, String(userCollapsed.value))
+      } catch { /* storage unavailable; choice lasts for this session only */ }
+    }
+    mq && mq.addEventListener('change', onMqChange)
+    onBeforeUnmount(() => mq && mq.removeEventListener('change', onMqChange))
 
     // Merge mock tasks from currentUser with API tasks
     const tasks = computed(() => {
@@ -150,6 +201,9 @@ export default {
 
     return {
       t,
+      navItems,
+      collapsed,
+      toggleSidebar,
       showProfileDetails,
       showTasks,
       tasks,
@@ -178,8 +232,110 @@ body {
 
 .app {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   min-height: 100vh;
+  --sidebar-width: 220px;
+}
+
+.app.sidebar-collapsed {
+  --sidebar-width: 64px;
+}
+
+/* Right-hand column; min-width: 0 lets wide tables scroll instead of overflowing the flex row */
+.app-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar {
+  width: var(--sidebar-width);
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  background: #ffffff;
+  border-right: 1px solid #e2e8f0;
+  padding: 0.75rem 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  overflow-x: hidden;
+  overflow-y: auto;
+  transition: width 0.2s ease;
+  z-index: 110;
+}
+
+.sidebar-toggle,
+.nav-tabs a {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  height: 40px;
+  padding: 0 0.75rem;
+  color: #64748b;
+  text-decoration: none;
+  font-family: inherit;
+  font-weight: 500;
+  font-size: 0.938rem;
+  white-space: nowrap;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.sidebar-toggle {
+  border-bottom: 1px solid transparent;
+}
+
+.sidebar-toggle:hover,
+.nav-tabs a:hover {
+  color: #0f172a;
+  background: #f1f5f9;
+}
+
+.sidebar-toggle:focus-visible,
+.nav-tabs a:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+.nav-icon {
+  flex-shrink: 0;
+}
+
+.nav-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Icons-only mode: hide text visually (aria-label on each link keeps the accessible name) */
+.sidebar-collapsed .nav-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.sidebar-collapsed .sidebar-toggle,
+.sidebar-collapsed .nav-tabs a {
+  justify-content: center;
+  padding: 0;
+}
+
+.nav-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.nav-tabs a.active {
+  color: #2563eb;
+  background: #eff6ff;
 }
 
 .top-nav {
@@ -200,12 +356,8 @@ body {
   height: 70px;
 }
 
-.nav-container > .nav-tabs {
-  margin-left: auto;
-  margin-right: 1rem;
-}
-
 .nav-container > .language-switcher {
+  margin-left: auto;
   margin-right: 1rem;
 }
 
@@ -213,6 +365,7 @@ body {
   display: flex;
   align-items: baseline;
   gap: 0.75rem;
+  min-width: 0;
 }
 
 .logo h1 {
@@ -220,6 +373,7 @@ body {
   font-weight: 700;
   color: #0f172a;
   letter-spacing: -0.025em;
+  white-space: nowrap;
 }
 
 .subtitle {
@@ -230,40 +384,25 @@ body {
   border-left: 1px solid #e2e8f0;
 }
 
-.nav-tabs {
-  display: flex;
-  gap: 0.25rem;
+/* Narrow viewports: drop the subtitle and tighten padding so the header fits next to the sidebar */
+@media (max-width: 1023px) {
+  .subtitle {
+    display: none;
+  }
+
+  .nav-container {
+    padding: 0 1rem;
+  }
+
+  .main-content {
+    padding: 1rem;
+  }
 }
 
-.nav-tabs a {
-  padding: 0.625rem 1.25rem;
-  color: #64748b;
-  text-decoration: none;
-  font-weight: 500;
-  font-size: 0.938rem;
-  border-radius: 6px;
-  transition: all 0.2s ease;
-  position: relative;
-}
-
-.nav-tabs a:hover {
-  color: #0f172a;
-  background: #f1f5f9;
-}
-
-.nav-tabs a.active {
-  color: #2563eb;
-  background: #eff6ff;
-}
-
-.nav-tabs a.active::after {
-  content: '';
-  position: absolute;
-  bottom: -1px;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: #2563eb;
+@media (prefers-reduced-motion: reduce) {
+  .sidebar {
+    transition: none;
+  }
 }
 
 .main-content {

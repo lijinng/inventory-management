@@ -74,6 +74,41 @@
           </table>
         </div>
       </div>
+
+      <!-- Restocking orders submitted from the Restocking page; independent of order filters -->
+      <div class="card">
+        <div class="card-header">
+          <h3 class="card-title">{{ t('orders.submittedTitle') }} ({{ submittedOrders.length }})</h3>
+        </div>
+        <div v-if="submittedError" class="error">{{ submittedError }}</div>
+        <div v-else-if="submittedOrders.length === 0" class="submitted-empty">{{ t('orders.submittedEmpty') }}</div>
+        <div v-else class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>{{ t('orders.submittedTable.orderNumber') }}</th>
+                <th>{{ t('orders.submittedTable.submitted') }}</th>
+                <th>{{ t('orders.submittedTable.items') }}</th>
+                <th>{{ t('orders.submittedTable.totalCost') }}</th>
+                <th>{{ t('orders.submittedTable.leadTime') }}</th>
+                <th>{{ t('orders.submittedTable.estimatedDelivery') }}</th>
+                <th>{{ t('orders.submittedTable.status') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="order in submittedOrders" :key="order.id">
+                <td><strong>{{ order.order_number }}</strong></td>
+                <td>{{ formatDate(order.submitted_at) }}</td>
+                <td>{{ t('orders.itemsCount', { count: order.items.length }) }}</td>
+                <td><strong>{{ currencySymbol }}{{ order.total_cost.toLocaleString() }}</strong></td>
+                <td>{{ t('orders.leadTimeDays', { count: order.lead_time_days }) }}</td>
+                <td>{{ formatDate(order.estimated_delivery) }}</td>
+                <td><span class="badge info">{{ order.status }}</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -95,6 +130,8 @@ export default {
     const loading = ref(true)
     const error = ref(null)
     const orders = ref([])
+    const submittedOrders = ref([])
+    const submittedError = ref(null)
 
     // Use shared filters
     const {
@@ -153,13 +190,28 @@ export default {
       })
     }
 
-    onMounted(loadOrders)
+    // Restocking orders are not affected by the order filters, so load once on mount
+    const loadSubmittedOrders = async () => {
+      try {
+        submittedError.value = null
+        submittedOrders.value = await api.getRestockingOrders()
+      } catch (err) {
+        submittedError.value = 'Failed to load submitted orders: ' + err.message
+      }
+    }
+
+    onMounted(() => {
+      loadOrders()
+      loadSubmittedOrders()
+    })
 
     return {
       t,
       loading,
       error,
       orders,
+      submittedOrders,
+      submittedError,
       getOrdersByStatus,
       getOrderStatusClass,
       formatDate,
@@ -201,6 +253,13 @@ export default {
 
 .col-value {
   width: 120px;
+}
+
+.submitted-empty {
+  text-align: center;
+  padding: 2rem;
+  color: #64748b;
+  font-size: 0.938rem;
 }
 
 /* Items details styling */

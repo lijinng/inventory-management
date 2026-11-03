@@ -122,8 +122,11 @@ export default {
 .filters-grid {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  /* Wrap so the filters fit beside the sidebar on narrow viewports instead of overflowing the page */
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
   flex: 1;
+  min-width: 0;
 }
 
 .filter-group {
